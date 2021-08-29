@@ -63,6 +63,11 @@ public class PlayerMovement : MonoBehaviour
 
         handleJump();
         handleSprint();
+
+        if (Input.GetKey(KeyCode.Escape))
+        {
+            Application.Quit();
+        }
     }
 
     private void handleJump()

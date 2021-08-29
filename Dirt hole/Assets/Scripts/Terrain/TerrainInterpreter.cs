@@ -334,13 +334,13 @@ public struct PopulateChunk : IJobParallelFor
         float overallScale = 0.4f; // Bigger number - higher frequency
         float foundY = 0;
 
-        float persistance = 0.15f; // 0.2f // [0;1]
-        float lecrunarity = 6; // 4 // (0; +inf)
-        uint octaves = 3; // 4
+        float persistance = 0.5f; // 0.2f // [0;1]
+        float lecrunarity = 2; // 4 // (0; +inf)
+        uint octaves = 6; // 4
 
 
         float amplitude = 1; // Bigger means lower valleys and bigger mountains.
-        float frequency = 2; // Bigger means more rapid change.
+        float frequency = 1; // Bigger means more rapid change.
 
         // return y < 0 ? 1 : 0;
 

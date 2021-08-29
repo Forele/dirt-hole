@@ -6,10 +6,9 @@ using UnityEngine;
 
 public class MarchingCubeInstructions
 {
+    private NativeArray<float3> marchingCube = new NativeArray<float3>(8, Allocator.Persistent);
     private NativeList<int> instructions = new NativeList<int>(Allocator.Persistent);
     private NativeList<int> notations = new NativeList<int>(Allocator.Persistent);
-
-    private NativeArray<float3> marchingCube = new NativeArray<float3>(8, Allocator.Persistent);
 
     private int maxInstructionLength = 15;
     private float threshold = 0.5f;

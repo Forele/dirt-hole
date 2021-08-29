@@ -48,7 +48,7 @@ public class TerrainManager : MonoBehaviour
     Dictionary<Vector3, int> createdChunks = new Dictionary<Vector3, int>();
 
 
-    int renderR = 200;
+    int renderR = 400;
 
     int triangleCountPerChunkVertex = 32; // 32
     int generatorCount = 32; //4 //32
