@@ -30,6 +30,7 @@ public class NewTerrainManager : MonoBehaviour
 
     Queue<Chunk> chunkWaiteForNative = new Queue<Chunk>();
     Thread chunkWaiteForNativeThread;
+    public TerrainEdit terrainEdit;
 
     public Camera fpsCam;
     int range = 1000;
@@ -53,62 +54,34 @@ public class NewTerrainManager : MonoBehaviour
         RenderTerraneStart();
     }
 
-    bool shown = false;
+    bool shown = false; // Fot P to display showableChunks as cubes
 
     private void Update()
     {
-        RenderTerrane();
+        RenderTerrain();
 
         if (Input.GetButtonDown("Fire1"))
         {
             Shoot();
         }
+
+        terrainEdit.Update();
     }
 
     void Shoot()
     {
-        //gameObject.layer = LayerMask.NameToLayer("Terrain");
         RaycastHit hit;
         bool isHit = Physics.Raycast(fpsCam.transform.position, fpsCam.transform.forward, out hit, range, LayerMask.GetMask("Terrain"));
 
         if (isHit)
         {
-            TestMadness(hit.transform.position, hit.triangleIndex, hit.point);
+            TerrainEdit.DigData digData  = new TerrainEdit.DigData();
+
+            digData.digPos = hit.point;
+            digData.chunkPos = hit.transform.position;
+
+            terrainEdit.digRequests.Enqueue(digData);
         }
-    }
-
-    void TestMadness(Vector3 position, int triangleIndex, Vector3 point)
-    {
-        Vector3 chunkL;
-        chunkL.x = position.x / terrainData.smallestChunkWidth;
-        chunkL.y = position.y / terrainData.smallestChunkWidth;
-        chunkL.z = position.z / terrainData.smallestChunkWidth;
-
-        Chunk chunk = allActiveChunks.SingleOrDefault(x => x.location == chunkL);
-
-        ThreadDataRequest.RequestData(() =>
-        {
-
-            return chunk;
-        }, (object _chunk) =>
-        {
-            Chunk chunk = (Chunk)_chunk;
-            chunkDataFetcher.DeletePoint(point, position, chunk);
-
-            chunkDataInterpreter.ScheduleChunkInterpretation(chunk);
-            WaitForChunkJobs(chunk);
-        });
-
-        //Debug.Log(StringVector(position) + "__" + triangleIndex.ToString() + "__" + StringVector(point).ToString());
-
-        var colors = chunk.mesh.colors;
-
-
-        colors[triangleIndex * 3] = new Color(1, 0, 0);
-        colors[triangleIndex * 3 + 1] = new Color(1, 0, 0);
-        colors[triangleIndex * 3 + 2] = new Color(1, 0, 0);
-
-        chunk.mesh.SetColors(colors);
     }
 
     void RenderTerraneStart()
@@ -130,28 +103,29 @@ public class NewTerrainManager : MonoBehaviour
 
         showableChunks = new List<Vector3>();
 
-        for (int i = 0; i < 8; i++)
+        for (int i = 0; i < terrainData.nativeDataSetCount; i++)
         {
             chunkNativeDataList.Add(new ChunkNativeData(terrainData, marchingCubeInstructions));
         }
 
         ThreadStart threadStart = delegate
         {
-            chunkWaiteForNativeManager();
+            ChunkWaiteForNativeManager();
         };
 
         chunkWaiteForNativeThread = new Thread(threadStart);
         chunkWaiteForNativeThread.Start();
+
+        terrainEdit = new TerrainEdit(ref allActiveChunks, terrainData, ref chunkWaiteForNative);
     }
 
-    void RenderTerrane()
+    void RenderTerrain()
     {
         oldPlayerGridLoc = playerGridLoc;
         playerGridLoc = GetPlayerLoc(player);
 
         //Profiler.BeginSample("MyPieceOfCode");
 
-        // When start at 0,0,0 chunks dont create
         if (oldPlayerGridLoc == null || oldPlayerGridLoc != playerGridLoc)
         {
             chOrder = chunkOrder.GetNextChunk(playerGridLoc).GetEnumerator();
@@ -166,10 +140,10 @@ public class NewTerrainManager : MonoBehaviour
             {
                 if (chunkL.y < 0)
                 {
-                    var c = allActiveChunks.SingleOrDefault(x => x.location == chunkL);
+                    var c = allActiveChunks.SingleOrDefault(x => x.position == chunkL);
 
                     GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                    cube.transform.position = c.location;
+                    cube.transform.position = c.position;
                     cube.transform.localScale = Vector3.one * c.chunkR * 2;
                 }
             }
@@ -179,13 +153,13 @@ public class NewTerrainManager : MonoBehaviour
         {
             Chunk chunkToCreate = chOrder.Current;
 
-            if (chunkToCreate.location.y > 0)
+            if (chunkToCreate.position.y > 0)
             {
-                return;
+                //return;
             }
 
-            Chunk isSet = allActiveChunks.SingleOrDefault(x => x.location == chunkToCreate.location);
-            showableChunks.Add(chunkToCreate.location);
+            Chunk isSet = allActiveChunks.SingleOrDefault(x => x.position == chunkToCreate.position);
+            showableChunks.Add(chunkToCreate.position);
 
             //Debug.Log(StringVector(chunkToCreate.location) + "_" +  chunkToCreate.chunkR);
 
@@ -204,7 +178,7 @@ public class NewTerrainManager : MonoBehaviour
 
                 if (chunk != null)
                 {
-                    chunk.location = chunkToCreate.location;
+                    chunk.position = chunkToCreate.position;
                     chunk.chunkR = chunkToCreate.chunkR;
                 }
                 else
@@ -216,6 +190,7 @@ public class NewTerrainManager : MonoBehaviour
                 chunk.state = Chunk.State.WaitingNative;
                 chunk.command = Chunk.Command.None;
                 chunk.finished = false;
+                chunk.nextStep = FirstChunkRun;
 
                 chunkWaiteForNative.Enqueue(chunk);
             }
@@ -234,7 +209,7 @@ public class NewTerrainManager : MonoBehaviour
                 if (
                     chunk.renderer != null &&
                     chunk.renderer.enabled != false &&
-                    !showableChunks.Contains(chunk.location)
+                    !showableChunks.Contains(chunk.position)
                 )
                 {
                     chunk.renderer.enabled = false;
@@ -246,13 +221,19 @@ public class NewTerrainManager : MonoBehaviour
         //Profiler.EndSample();
     }
 
-    void chunkWaiteForNativeManager()
+    //+ Whenever chunk is edied (create chunk, dig chunk)
+    void ChunkWaiteForNativeManager()
     {
         while (true)
         {
             if (chunkWaiteForNative.Count > 0)
             {
                 Chunk chunk = chunkWaiteForNative.Dequeue();
+
+                if (chunk == null)
+                {
+                    continue;
+                }
 
                 bool foundFree = false;
 
@@ -265,7 +246,7 @@ public class NewTerrainManager : MonoBehaviour
                             chunkNativeData.inUse = true;
                             chunk.chunkNativeData = chunkNativeData;
                             foundFree = true;
-                            chunk.state = Chunk.State.Making;
+                            chunk.state = Chunk.State.GotNative;
                             break;
                         }
                     }
@@ -277,17 +258,37 @@ public class NewTerrainManager : MonoBehaviour
                 }, (object _chunk) =>
                 {
                     Chunk chunk = (Chunk)_chunk;
-                    chunk.InitMT(gameObject, terrainData, marchingCubeInstructions);
-                    ThreadDataRequest.RequestData(() => CreateChunk(chunk), AfterCreateChunk);
+                    chunk.nextStep(chunk);
                 });
             }
             else
             {
-                Thread.Sleep(1000);
+                Thread.Sleep(1);
             }
         }
     }
 
+    //+
+    void FirstChunkRun(Chunk chunk)
+    {
+        ThreadDataRequest.RequestData(() =>
+        {
+            return chunk;
+        }, (object _chunk) =>
+        {
+            Chunk chunk = (Chunk)_chunk;
+            chunk.state = Chunk.State.Making;
+            chunk.InitMT(gameObject, terrainData, marchingCubeInstructions, chunkDataFetcher, chunkDataInterpreter);
+
+            ThreadDataRequest.RequestData(() => {
+                chunk.InitNMT(terrainData, marchingCubeInstructions);
+
+                return chunk;
+            }, AfterAllInits);
+        });
+    }
+
+    //+
     void OnDestroy()
     {
         foreach (var chunkNativeData in chunkNativeDataList)
@@ -296,71 +297,16 @@ public class NewTerrainManager : MonoBehaviour
         }
     }
 
-    Chunk CreateChunk(object _chunk)
-    {
-        Chunk chunk = (Chunk)_chunk;
-
-        chunk.InitNMT(terrainData, marchingCubeInstructions);
-
-        return chunk;
-    }
-
-    // MT
-    void AfterCreateChunk(object _chunk)
+    //+ MT
+    void AfterAllInits(object _chunk)
     {
         Chunk chunk = (Chunk)_chunk;
 
         chunkDataFetcher.ScheduleChunkData(chunk);
         chunkDataInterpreter.ScheduleChunkInterpretation(chunk);
 
-        WaitForChunkJobs(chunk);
-    }
-
-    void WaitForChunkJobs(Chunk chunk, bool pause = false)
-    {
-        ThreadDataRequest.RequestData(() =>
-        {
-            if (pause)
-            {
-                Thread.Sleep(1000);
-            }
-
-            return chunk;
-        }, (object _chunk) =>
-        {
-            Chunk chunk = (Chunk)_chunk;
-
-            if (!chunk.chunkNativeData.meshBakeHandle.IsCompleted)
-            {
-                WaitForChunkJobs(chunk, true);
-            }
-            else
-            {
-                CreateCollider(chunk);
-            }
-        });
-    }
-
-    void CreateCollider(Chunk chunk)
-    {
-        chunk.CompleteJobHandle();
-        chunkDataInterpreter.SetChunkData(chunk);
-
-        ThreadDataRequest.RequestData(() =>
-        {
-            Physics.BakeMesh(chunk.meshInstanceId, false);
-            return chunk;
-        }, (object _chunk) =>
-        {
-            Chunk chunk = (Chunk)_chunk;
-
-            chunk.strengths = chunk.chunkNativeData.strengths.ToList();
-            chunk.gameObject.GetComponent<MeshCollider>().sharedMesh = chunk.mesh;
-            chunk.renderer.enabled = true;
-            chunk.chunkNativeData.inUse = false;
-            chunk.finished = true;
-            chunk.state = Chunk.State.Done;
-        });
+        chunk.nextStep = chunk.CreateCollider;
+        chunk.WaitForChunkJobs(chunk);
     }
 
     string StringVector(Vector3 vec)
@@ -377,8 +323,6 @@ public class NewTerrainManager : MonoBehaviour
         if (x == 0) { x += _player.transform.position.x > 0 ? 1 : -1; }
         if (y == 0) { y += _player.transform.position.y > 0 ? 1 : -1; }
         if (z == 0) { z += _player.transform.position.z > 0 ? 1 : -1; }
-
-        
 
         return new Vector3(x, y, z);
     }
@@ -406,7 +350,6 @@ public class ChunkNativeData
     public JobHandle meshBakeHandle;
     public JobHandle meshMakingHandle;
 
-    //public int parentChunkClassInstanceId;
     public bool inUse = false;
 
     bool firstSetUpDone = false;
@@ -483,7 +426,7 @@ public class ChunkNativeData
         }
 
         float stepSize = (terrainData.smallestChunkWidth * (chunk.chunkR * 2)) / (float)terrainData.segemntCountPerDimension;
-        Vector3 startPoint = chunk.location * terrainData.smallestChunkWidth - Vector3.one * chunk.chunkR * terrainData.smallestChunkWidth;
+        Vector3 startPoint = chunk.position * terrainData.smallestChunkWidth - Vector3.one * chunk.chunkR * terrainData.smallestChunkWidth;
 
         dataGeneration.startPoint = startPoint;
         dataGeneration.stepSize = stepSize;
@@ -509,13 +452,21 @@ public class ChunkNativeData
 
 public class Chunk
 {
-    public enum State { New, WaitingNative, Making, Done, Free };
+    //public struct ChunkPart
+    //{
+    //    public Vector3 position;
+    //    public Vector3 index;
+    //    public float[] strengths;
+    //}
+    
+    public enum State { New, WaitingNative, GotNative, Making, Done, Free };
 
     public enum Command { None, NotNeeded };
 
     public ChunkNativeData chunkNativeData;
 
-    public Vector3 location;
+    public Vector3 position;
+    public Vector3 subchunkIndex;
     public int chunkR;
     public State state = State.New;
     public Command command = Command.None;
@@ -528,6 +479,15 @@ public class Chunk
     public bool finished = false;
 
     public List<float> strengths;
+    //public ChunkPart[,,] chunkParts;
+    public ChunkDataFetcher chunkDataFetcher;
+    public ChunkDataInterpreter chunkDataInterpreter;
+
+    //public Queue<Chunk> chunkWaiteForNative;
+    //public Queue<ChunkPart> smallChunkQueue;
+
+    //public float[,,][] smallChunkStrengths;
+    public Action<Chunk> nextStep;
 
     bool CheckForStop()
     {
@@ -544,7 +504,13 @@ public class Chunk
         return false;
     }
 
-    public bool InitMT(GameObject pGameObject, TerrainData terrainData, MarchingCubeInstructions marchingCubeInstructions)
+    public bool InitMT(
+        GameObject pGameObject, 
+        TerrainData terrainData, 
+        MarchingCubeInstructions marchingCubeInstructions,
+        ChunkDataFetcher _chunkDataFetcher,
+        ChunkDataInterpreter _chunkDataInterpreter
+    )
     {
         if (!firstSetUpDone)
         {
@@ -559,6 +525,10 @@ public class Chunk
             meshFilter.mesh.indexFormat = IndexFormat.UInt32;
             mesh = meshFilter.mesh;
             strengths = new List<float>();
+            //chunkWaiteForNative = new Queue<Chunk>();
+            //smallChunkQueue = new Queue<ChunkPart>();
+            chunkDataFetcher = _chunkDataFetcher;
+            chunkDataInterpreter = _chunkDataInterpreter;
         }
 
         return chunkNativeData != null;
@@ -574,5 +544,101 @@ public class Chunk
         state = State.Making;
 
         chunkNativeData.SetRunData(this);
+        int chunkEdgeCount = (chunkR + chunkDataFetcher.extraW) * 2;
+        //chunkParts = new ChunkPart[chunkEdgeCount, chunkEdgeCount, chunkEdgeCount];
+
+        //foreach (var item in chunkDataFetcher.GetSubchunks(this))
+        //{
+        //    smallChunkQueue.Enqueue(item);
+        //}
+    }
+
+    //public void CollectSmallChunks(Chunk chunk)
+    //{
+    //    if (smallChunkQueue.Count > 0)
+    //    {
+    //        var chunkPart = smallChunkQueue.Dequeue();
+
+    //        subchunkIndex = chunkPart.index;
+
+    //        chunkDataFetcher.DoSubchunk(this, chunkPart.position, ShoveStrengthData);
+    //    }
+    //    else
+    //    {
+    //        ThreadDataRequest.RequestData(() =>
+    //        {
+    //            return chunk;
+    //        }, (object _chunk) =>
+    //        {
+    //            Chunk chunk = (Chunk)_chunk;
+    //            chunkDataFetcher.PopulateStrengths(this);
+    //            nextStep(chunk);
+    //        });
+    //    }
+    //}
+
+    //public void ShoveStrengthData(Chunk chunk)
+    //{
+    //    chunkParts[(int)subchunkIndex.x, (int)subchunkIndex.y, (int)subchunkIndex.z].strengths = chunkNativeData.strengths.ToArray();
+    //    //smallChunkStrengths[(int)subchunkIndex.x, (int)subchunkIndex.y, (int)subchunkIndex.z] = strengths.ToArray();
+
+    //    CollectSmallChunks(chunk);
+    //}
+
+    // MT
+    public void InterpretStrengths(Chunk chunk)
+    {
+        chunk.chunkDataInterpreter.ScheduleChunkInterpretation(chunk);
+        chunk.nextStep = CreateCollider;
+        WaitForChunkJobs(chunk);
+    }
+
+    public void WaitForChunkJobs(Chunk chunk, bool pause = false)
+    {
+        ThreadDataRequest.RequestData(() =>
+        {
+            if (pause)
+            {
+                Thread.Sleep(1);
+            }
+
+            return chunk;
+        }, (object _chunk) =>
+        {
+            Chunk chunk = (Chunk)_chunk;
+
+            if (!chunk.chunkNativeData.meshBakeHandle.IsCompleted)
+            {
+                WaitForChunkJobs(chunk, true);
+            }
+            else
+            {
+                chunk.nextStep(chunk);
+            }
+        });
+    }
+
+    public void CreateCollider(Chunk chunk)
+    {
+        chunk.CompleteJobHandle();
+        chunkDataInterpreter.SetChunkData(chunk);
+
+        ThreadDataRequest.RequestData(() =>
+        {
+            Physics.BakeMesh(chunk.meshInstanceId, false);
+            return chunk;
+        }, (object _chunk) =>
+        {
+            Chunk chunk = (Chunk)_chunk;
+
+            chunk.strengths = chunk.chunkNativeData.strengths.ToList();
+            chunk.gameObject.GetComponent<MeshCollider>().sharedMesh = chunk.mesh;
+            chunk.renderer.enabled = true;
+            chunk.chunkNativeData.meshBakeHandle.Complete();
+            chunk.chunkNativeData.meshMakingHandle.Complete();
+            chunk.chunkNativeData.inUse = false;
+            chunk.finished = true;
+            chunk.state = Chunk.State.Done;
+        });
     }
 }

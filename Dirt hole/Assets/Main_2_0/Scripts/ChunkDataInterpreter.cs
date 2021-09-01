@@ -38,7 +38,7 @@ public class ChunkDataInterpreter
     {
         chunk.mesh.Clear();
 
-        chunk.gameObject.transform.position = terrainData.smallestChunkWidth * chunk.location;
+        chunk.gameObject.transform.position = terrainData.smallestChunkWidth * chunk.position;
         chunk.gameObject.transform.localScale = Vector3.one * 2 * terrainData.smallestChunkWidth * chunk.chunkR;
 
         chunk.mesh.SetVertices(chunk.chunkNativeData.vertices.AsArray(), 0, chunk.chunkNativeData.vertices.Length);

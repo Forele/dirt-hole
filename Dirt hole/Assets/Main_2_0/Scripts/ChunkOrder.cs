@@ -88,6 +88,15 @@ public class ChunkOrder
 
     public IEnumerable<Chunk> GetNextChunk(Vector3 playerSmallGridLoc)
     {
+        //Chunk chunk = new Chunk();
+
+        //chunk.chunkR = 1;
+        //chunk.position = new Vector3(1, 1, 1);
+        //chunk.state = Chunk.State.New;
+
+        //yield return chunk;
+        //yield break;
+
         //if (Input.GetKey(KeyCode.P))
         //{
         //    Debug.Log(
@@ -153,7 +162,7 @@ public class ChunkOrder
                 {
                     hasThingsToDoo = true;
 
-                    if ((chunkIterator.Current.location - playerSmallGridLoc).magnitude <= terrainData.newChunkR)
+                    if ((chunkIterator.Current.position - playerSmallGridLoc).magnitude <= terrainData.newChunkR)
                     {
                         yield return chunkIterator.Current;
                     }
@@ -228,7 +237,7 @@ public class ChunkOrder
             Chunk chunk = new Chunk();
 
             chunk.chunkR = size / 2;
-            chunk.location = child;
+            chunk.position = child;
             chunk.state = Chunk.State.New;
 
             yield return chunk;
@@ -344,7 +353,7 @@ public class ChunkOrder
     {
         Chunk chunk = new Chunk();
         chunk.chunkR = 2;
-        chunk.location = new Vector3(2, 2, 2);
+        chunk.position = new Vector3(2, 2, 2);
 
         yield return chunk;
 

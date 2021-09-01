@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
@@ -10,20 +11,23 @@ using UnityEngine;
 
 public class ChunkDataFetcher
 {
-    struct StrengthNode
+    public struct StrengthNode
     {
         public Vector3 pos;
         public float strength;
         public float dist;
     }
 
+    public int extraW = 1;
+    public int oneDim = 1;
     public TerrainData terrainData;
-    int oneDim = 1;
+    float smallStepSize;
 
     public void SetTerrainData(TerrainData _terrainData)
     {
         this.terrainData = _terrainData;
         oneDim = terrainData.segemntCountPerDimension + 1;
+        smallStepSize = (terrainData.smallestChunkWidth) / (float)terrainData.segemntCountPerDimension;
     }
 
     string StringVector(Vector3 vec)
@@ -116,6 +120,198 @@ public class ChunkDataFetcher
         }
     }
 
+    //public List<Chunk.ChunkPart> GetSubchunks(Chunk chunk)
+    //{
+    //    int listR = chunk.chunkR + 1;
+    //    //chunk.chunkParts = new Chunk.ChunkPart[listR * 2, listR * 2, listR * 2];
+    //    Vector3 walkingTarget = new Vector3();
+    //    List<Chunk.ChunkPart> subchunks = new List<Chunk.ChunkPart>();
+
+    //    for (int z = 0; z < listR * 2; z++)
+    //    {
+    //        for (int y = 0; y < listR * 2; y++)
+    //        {
+    //            for (int x = 0; x < listR * 2; x++)
+    //            {
+    //                walkingTarget.x = chunk.position.x + x - listR;
+    //                walkingTarget.y = chunk.position.y + y - listR;
+    //                walkingTarget.z = chunk.position.z + z - listR;
+
+    //                var chunkPart = new Chunk.ChunkPart();
+
+    //                chunkPart.position = walkingTarget * terrainData.smallestChunkWidth;
+    //                chunkPart.index = new Vector3(x, y, z);
+
+    //                subchunks.Add(chunkPart);
+    //            }
+    //        }
+    //    }
+
+    //    return subchunks;
+    //}
+
+
+    public void DoSubchunk(Chunk chunk, Vector3 startPoint, Action<Chunk> callBack)
+    {
+        chunk.chunkNativeData.dataGeneration.startPoint = startPoint;
+        chunk.chunkNativeData.dataGeneration.stepSize = smallStepSize;
+        chunk.chunkNativeData.dataGeneration.seed = terrainData.seed;
+
+        chunk.chunkNativeData.meshMakingHandle = chunk.chunkNativeData.dataGeneration.Schedule(oneDim * oneDim * oneDim, oneDim * oneDim, chunk.chunkNativeData.meshMakingHandle);
+        //chunk.chunkNativeData.meshMakingHandle.Complete();
+
+        WaitForSubchunk(chunk, callBack, terrainData);
+
+        //callBack(chunk);
+    }
+
+    void WaitForSubchunk(Chunk chunk, Action<Chunk> callBack, bool pause = false)
+    {
+        ThreadDataRequest.RequestData(() =>
+        {
+            if (pause)
+            {
+                Thread.Sleep(1);
+            }
+
+            return chunk;
+        }, (object _chunk) =>
+        {
+            Chunk chunk = (Chunk)_chunk;
+
+            if (!chunk.chunkNativeData.meshMakingHandle.IsCompleted)
+            {
+                WaitForSubchunk(chunk, callBack, true);
+            }
+            else
+            {
+                chunk.chunkNativeData.meshMakingHandle.Complete();
+                callBack(chunk);
+            }
+        });
+    }
+
+    public void CalculateChunkStrengths(Chunk chunk)
+    {
+        int listR = chunk.chunkR + 1;
+        //chunk.chunkParts = new Chunk.ChunkPart[listR * 2, listR * 2, listR * 2];
+        //Vector3 walkingTarget = new Vector3();
+        //float halfWidth = terrainData.smallestChunkWidth / 2f;
+
+        ////Debug.Log(StringVector(chunk.position));
+
+        //for (int z = 0; z < listR * 2; z++)
+        //{
+        //    for (int y = 0; y < listR * 2; y++)
+        //    {
+        //        for (int x = 0; x < listR * 2; x++)
+        //        {
+        //            var cp = new Chunk.ChunkPart();
+
+        //            walkingTarget.x = chunk.position.x + x - listR;
+        //            walkingTarget.y = chunk.position.y + y - listR;
+        //            walkingTarget.z = chunk.position.z + z - listR;
+
+        //            Debug.Log(StringVector(walkingTarget));
+
+        //            Vector3 startPoint;
+
+        //            float stepSize = (terrainData.smallestChunkWidth) / (float)terrainData.segemntCountPerDimension;
+        //            startPoint = walkingTarget * terrainData.smallestChunkWidth - Vector3.one * 0.5f * terrainData.smallestChunkWidth;
+
+        //            startPoint = walkingTarget * terrainData.smallestChunkWidth;
+
+        //            cp.position = startPoint;
+
+        //            chunk.chunkNativeData.dataGeneration.startPoint = startPoint;
+        //            chunk.chunkNativeData.dataGeneration.stepSize = stepSize;
+        //            chunk.chunkNativeData.dataGeneration.seed = terrainData.seed;
+
+        //            chunk.chunkNativeData.meshMakingHandle = chunk.chunkNativeData.dataGeneration.Schedule(oneDim * oneDim * oneDim, oneDim * oneDim, chunk.chunkNativeData.meshMakingHandle);
+
+        //            chunk.chunkNativeData.meshMakingHandle.Complete();
+
+        //            cp.strengths = chunk.chunkNativeData.strengths.ToArray();
+
+        //            chunk.chunkParts[x, y, z] = cp;
+        //        }
+        //    }
+        //}
+
+        Unity.Mathematics.Random r = new Unity.Mathematics.Random();
+        r.InitState();
+
+        for (int z = 1; z < listR * 2 - 1; z++)
+        {
+            for (int y = 1; y < listR * 2 - 1; y++)
+            {
+                for (int x = 1; x < listR * 2 - 1; x++)
+                {
+                    var makerStrengths = new float[3]; // chunk.smallChunkStrengths[x, y, z];
+
+                    int zoom = 2 * chunk.chunkR;
+
+                    for (int zz = 0; zz < oneDim; zz += zoom)
+                    {
+                        for (int yy = 0; yy < oneDim; yy += zoom)
+                        {
+                            for (int xx = 0; xx < oneDim; xx += zoom)
+                            {
+                                var strength = makerStrengths[xx + yy * oneDim + zz * oneDim * oneDim];
+
+                                var xxx = ((x - 1) * oneDim) / zoom + xx / zoom;
+                                var yyy = ((y - 1) * oneDim) / zoom + yy / zoom;
+                                var zzz = ((z - 1) * oneDim) / zoom + zz / zoom;
+
+                                var ind = xxx + yyy * oneDim + zzz * oneDim * oneDim;
+
+                                chunk.chunkNativeData.strengths[ind] = strength;
+
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    //public void PopulateStrengths(Chunk chunk)
+    //{
+    //    int listR = chunk.chunkR + 1;
+
+    //    for (int z = 1; z < listR * 2 - 1; z++)
+    //    {
+    //        for (int y = 1; y < listR * 2 - 1; y++)
+    //        {
+    //            for (int x = 1; x < listR * 2 - 1; x++)
+    //            {
+    //                var makerStrengths = chunk.chunkParts[x, y, z].strengths;
+
+    //                int zoom = 2 * chunk.chunkR;
+
+    //                for (int zz = 0; zz < oneDim; zz += zoom)
+    //                {
+    //                    for (int yy = 0; yy < oneDim; yy += zoom)
+    //                    {
+    //                        for (int xx = 0; xx < oneDim; xx += zoom)
+    //                        {
+    //                            var strength = makerStrengths[xx + yy * oneDim + zz * oneDim * oneDim];
+
+    //                            var xxx = ((x - 1) * oneDim) / zoom + xx / zoom;
+    //                            var yyy = ((y - 1) * oneDim) / zoom + yy / zoom;
+    //                            var zzz = ((z - 1) * oneDim) / zoom + zz / zoom;
+
+    //                            var ind = xxx + yyy * oneDim + zzz * oneDim * oneDim;
+
+    //                            chunk.chunkNativeData.strengths[ind] = strength;
+    //                        }
+    //                    }
+    //                }
+    //            }
+    //        }
+    //    }
+    //}
+    
     public void ScheduleChunkData(Chunk chunk)
     {
         chunk.chunkNativeData.meshMakingHandle = chunk.chunkNativeData.dataGeneration.Schedule(oneDim * oneDim * oneDim, oneDim * oneDim, chunk.chunkNativeData.meshMakingHandle);
@@ -150,6 +346,14 @@ public struct ChunkGenerator : IJobParallelFor
 
     float GetStrengthValue(int x, int y, int z)
     {
+        //if (x == 0 || y == 0 || z == 0 || x == size - 1 || y == size - 1 || z == size - 1)
+        //{
+        //    return 0f;
+        //} else
+        //{
+        //    return 1f;
+        //}
+
         // test for complex chunk
         // return random.NextFloat(0, 1);
 
@@ -199,7 +403,7 @@ public struct ChunkGenerator : IJobParallelFor
             frequency *= lecrunarity;
         }
 
-        foundY -= 100;
+        foundY -= size / 2f; // While testing shift ground
 
         float range = stepSize;
         var min = foundY - range;

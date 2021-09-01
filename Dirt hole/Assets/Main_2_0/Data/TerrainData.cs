@@ -9,4 +9,5 @@ public class TerrainData : ScriptableObject
     public int segemntCountPerDimension; // Triangle count in chunk
     public int seed;
     public int newChunkR;
+    public int nativeDataSetCount;
 }
