@@ -9,12 +9,14 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: fbf3c87d8f4cf044897fd3c0b55e7d6b, type: 3}
-  m_Name: Terrain Data
+  m_Script: {fileID: 11500000, guid: dd89cf0093c854d45a669641c639a7d0, type: 3}
+  m_Name: TestCubeStrengths
   m_EditorClassIdentifier: 
-  smallestChunkWidth: 20
-  segemntCountPerDimension: 20
-  seed: 16
-  newChunkR: 8
-  nativeDataSetCount: 19
-  threshold: 0.5
+  p1: 1
+  p2: 0
+  p3: 1
+  p4: 0
+  p5: 1
+  p6: 0
+  p7: 0
+  p8: 0

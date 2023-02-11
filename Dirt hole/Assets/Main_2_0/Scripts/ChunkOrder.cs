@@ -6,6 +6,7 @@ using System.Linq;
 
 public class ChunkOrder
 {
+    public Vector3 playerLoc;
     TerrainData terrainData;
     List<Vector3> foundEdgeBigChunks = new List<Vector3>();
     List<IEnumerator<Chunk>> chunkSpaceIterators = new List<IEnumerator<Chunk>>();
@@ -105,7 +106,7 @@ public class ChunkOrder
         //    );
         //}
 
-
+        playerLoc = playerSmallGridLoc;
         //PrintVector(playerSmallGridLoc);
 
         foundEdgeBigChunks.Clear();

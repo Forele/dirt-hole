@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -9,6 +10,8 @@ using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Profiling;
 using UnityEngine.Rendering;
+using System;
+using System.IO;
 
 public class NewTerrainManager : MonoBehaviour
 {
@@ -28,12 +31,11 @@ public class NewTerrainManager : MonoBehaviour
     List<Vector3> showableChunks;
     List<ChunkNativeData> chunkNativeDataList = new List<ChunkNativeData>();
 
-    Queue<Chunk> chunkWaiteForNative = new Queue<Chunk>();
+    ConcurrentQueue<Chunk> chunkWaiteForNative = new ConcurrentQueue<Chunk>();
     Thread chunkWaiteForNativeThread;
     public TerrainEdit terrainEdit;
 
     public Camera fpsCam;
-    int range = 1000;
 
     void CodeNoteKeeper()
     {
@@ -47,10 +49,16 @@ public class NewTerrainManager : MonoBehaviour
         //    Chunk chunk = (Chunk)_chunk;
         //
         //});
+
+        //if (Input.GetKey(KeyCode.T))
+        //{
+        //    Debug.Log(allActiveChunks.Count().ToString());
+        //}
     }
 
     void Start()
     {
+        //return;
         RenderTerraneStart();
     }
 
@@ -58,30 +66,21 @@ public class NewTerrainManager : MonoBehaviour
 
     private void Update()
     {
+        //return;
+
         RenderTerrain();
+
+        if (Input.GetButtonDown("Fire2"))
+        {
+            terrainEdit.Shoot();
+        }
 
         if (Input.GetButtonDown("Fire1"))
         {
-            Shoot();
+            terrainEdit.Shoot(-1);
         }
 
         terrainEdit.Update();
-    }
-
-    void Shoot()
-    {
-        RaycastHit hit;
-        bool isHit = Physics.Raycast(fpsCam.transform.position, fpsCam.transform.forward, out hit, range, LayerMask.GetMask("Terrain"));
-
-        if (isHit)
-        {
-            TerrainEdit.DigData digData  = new TerrainEdit.DigData();
-
-            digData.digPos = hit.point;
-            digData.chunkPos = hit.transform.position;
-
-            terrainEdit.digRequests.Enqueue(digData);
-        }
     }
 
     void RenderTerraneStart()
@@ -91,6 +90,8 @@ public class NewTerrainManager : MonoBehaviour
 
         player = GameObject.FindWithTag("Player");
         allActiveChunks = new List<Chunk>();
+
+        //Debug.Log(terrainData.smallestChunkWidth.ToString());
 
         chunkOrder = new ChunkOrder();
         chunkOrder.SetUpVariables(terrainData);
@@ -116,15 +117,13 @@ public class NewTerrainManager : MonoBehaviour
         chunkWaiteForNativeThread = new Thread(threadStart);
         chunkWaiteForNativeThread.Start();
 
-        terrainEdit = new TerrainEdit(ref allActiveChunks, terrainData, ref chunkWaiteForNative);
+        terrainEdit = new TerrainEdit(ref allActiveChunks, terrainData, ref chunkWaiteForNative, fpsCam);
     }
 
     void RenderTerrain()
     {
         oldPlayerGridLoc = playerGridLoc;
         playerGridLoc = GetPlayerLoc(player);
-
-        //Profiler.BeginSample("MyPieceOfCode");
 
         if (oldPlayerGridLoc == null || oldPlayerGridLoc != playerGridLoc)
         {
@@ -158,48 +157,41 @@ public class NewTerrainManager : MonoBehaviour
                 //return;
             }
 
-            Chunk isSet = allActiveChunks.SingleOrDefault(x => x.position == chunkToCreate.position);
+            Chunk isSet = allActiveChunks.FirstOrDefault(x => x.position == chunkToCreate.position);
             showableChunks.Add(chunkToCreate.position);
 
             //Debug.Log(StringVector(chunkToCreate.location) + "_" +  chunkToCreate.chunkR);
 
             if (isSet == null)
             {
-                Chunk chunk;
+                Chunk freeChunk = allActiveChunks.FirstOrDefault(x => x.state == Chunk.State.Free);
 
-                if (isSet == null)
+                if (freeChunk != null)
                 {
-                    chunk = allActiveChunks.SingleOrDefault(x => x.state == Chunk.State.Free);
+                    freeChunk.position = chunkToCreate.position;
+                    freeChunk.chunkR = chunkToCreate.chunkR;
                 }
                 else
                 {
-                    chunk = isSet;
+                    freeChunk = chunkToCreate;
+                    allActiveChunks.Add(freeChunk);
                 }
 
-                if (chunk != null)
+                //freeChunk.state = Chunk.State.Queuing;
+
+                freeChunk.commandQueue.Enqueue(() =>
                 {
-                    chunk.position = chunkToCreate.position;
-                    chunk.chunkR = chunkToCreate.chunkR;
-                }
-                else
-                {
-                    chunk = chunkToCreate;
-                    allActiveChunks.Add(chunk);
-                }
+                    freeChunk.state = Chunk.State.WaitingNative;
+                    freeChunk.command = Chunk.Command.None;
+                    freeChunk.finished = false;
+                    freeChunk.nextStep = FirstChunkRun;
 
-                chunk.state = Chunk.State.WaitingNative;
-                chunk.command = Chunk.Command.None;
-                chunk.finished = false;
-                chunk.nextStep = FirstChunkRun;
-
-                chunkWaiteForNative.Enqueue(chunk);
+                    chunkWaiteForNative.Enqueue(freeChunk);
+                });
             }
-            else
+            else if (isSet.renderer != null)
             {
-                if (isSet.renderer != null)
-                {
-                    isSet.renderer.enabled = true;
-                }
+                isSet.renderer.enabled = true;
             }
         }
         else
@@ -213,12 +205,34 @@ public class NewTerrainManager : MonoBehaviour
                 )
                 {
                     chunk.renderer.enabled = false;
-                    chunk.command = Chunk.Command.NotNeeded;
+                }
+
+                if (chunk.state != Chunk.State.Free && chunk.command != Chunk.Command.Freed && Vector3.Distance(chunk.position, playerGridLoc) > terrainData.newChunkR + 4)
+                {
+                    chunk.commandQueue.Enqueue(() =>
+                    {
+                        // Assumed no further interraction possible
+
+                        Action item;
+
+                        while (chunk.commandQueue.TryDequeue(out item))
+                        {
+                            // do nothing
+                        }
+
+                        chunk.command = Chunk.Command.Freed;
+                        chunk.state = Chunk.State.Free;
+                    });
                 }
             }
         }
 
-        //Profiler.EndSample();
+        foreach (Chunk chunk in allActiveChunks)
+        {
+            chunk.RunNextQueueCommand();
+        }
+
+        // Debug.Log(allActiveChunks.Count.ToString());
     }
 
     //+ Whenever chunk is edied (create chunk, dig chunk)
@@ -228,7 +242,8 @@ public class NewTerrainManager : MonoBehaviour
         {
             if (chunkWaiteForNative.Count > 0)
             {
-                Chunk chunk = chunkWaiteForNative.Dequeue();
+                Chunk chunk = null;
+                chunkWaiteForNative.TryDequeue(out chunk);
 
                 if (chunk == null)
                 {
@@ -244,6 +259,13 @@ public class NewTerrainManager : MonoBehaviour
                         if (!chunkNativeData.inUse)
                         {
                             chunkNativeData.inUse = true;
+                            chunkNativeData.userCount++;
+
+                            if (chunkNativeData.userCount > 1)
+                            {
+                                Debug.Log("Too many users");
+                            }
+
                             chunk.chunkNativeData = chunkNativeData;
                             foundFree = true;
                             chunk.state = Chunk.State.GotNative;
@@ -271,6 +293,8 @@ public class NewTerrainManager : MonoBehaviour
     //+
     void FirstChunkRun(Chunk chunk)
     {
+        chunk.state = Chunk.State.FirstRun;
+
         ThreadDataRequest.RequestData(() =>
         {
             return chunk;
@@ -278,10 +302,11 @@ public class NewTerrainManager : MonoBehaviour
         {
             Chunk chunk = (Chunk)_chunk;
             chunk.state = Chunk.State.Making;
-            chunk.InitMT(gameObject, terrainData, marchingCubeInstructions, chunkDataFetcher, chunkDataInterpreter);
+            chunk.InitMT(gameObject, chunkDataFetcher, chunkDataInterpreter);
 
             ThreadDataRequest.RequestData(() => {
-                chunk.InitNMT(terrainData, marchingCubeInstructions);
+                chunk.state = Chunk.State.NMT;
+                chunk.InitNMT(/*terrainData, marchingCubeInstructions*/);
 
                 return chunk;
             }, AfterAllInits);
@@ -297,13 +322,16 @@ public class NewTerrainManager : MonoBehaviour
         }
     }
 
+
     //+ MT
     void AfterAllInits(object _chunk)
     {
         Chunk chunk = (Chunk)_chunk;
 
-        chunkDataFetcher.ScheduleChunkData(chunk);
-        chunkDataInterpreter.ScheduleChunkInterpretation(chunk);
+        chunk.state = Chunk.State.AfterAllInits;
+
+        chunkDataFetcher.ScheduleChunkData(chunk.chunkNativeData);
+        chunkDataInterpreter.ScheduleChunkInterpretation(chunk.chunkNativeData);
 
         chunk.nextStep = chunk.CreateCollider;
         chunk.WaitForChunkJobs(chunk);
@@ -328,317 +356,4 @@ public class NewTerrainManager : MonoBehaviour
     }
 }
 
-public class ChunkNativeData
-{
-    TerrainData terrainData;
-    MarchingCubeInstructions marchingCubeInstructions;
 
-    public NativeArray<float> strengths;
-    public NativeArray<float3> foundVertaces;
-    public NativeArray<float3> halfPoints;
-    public NativeArray<int> triangleCounts;
-
-    public NativeList<uint> triangles;
-    public NativeList<Vector3> vertices;
-    public NativeList<Color> colors;
-    public NativeList<Vector3> normals;
-
-    public ChunkGenerator dataGeneration;
-    public CubeMarch cubeMarch;
-    public Populate populate;
-
-    public JobHandle meshBakeHandle;
-    public JobHandle meshMakingHandle;
-
-    public bool inUse = false;
-
-    bool firstSetUpDone = false;
-    const int maxInstructionLength = 15;
-
-    public ChunkNativeData(TerrainData _terrainData, MarchingCubeInstructions _marchingCubeInstructions)
-    {
-        terrainData = _terrainData;
-        marchingCubeInstructions = _marchingCubeInstructions;
-        SetUpInstances();
-    }
-
-    public void SetUpInstances()
-    {
-        if (!firstSetUpDone)
-        {
-            int cubesPerLine = terrainData.segemntCountPerDimension;
-            int cubeCount = cubesPerLine * cubesPerLine * cubesPerLine;
-            int oneDim = terrainData.segemntCountPerDimension + 1;
-
-            strengths = new NativeArray<float>(oneDim * oneDim * oneDim, Allocator.Persistent);
-            triangleCounts = new NativeArray<int>(cubeCount, Allocator.Persistent);
-            halfPoints = new NativeArray<float3>(cubeCount * 12, Allocator.Persistent);
-            foundVertaces = new NativeArray<float3>(cubeCount * maxInstructionLength, Allocator.Persistent);
-
-            triangles = new NativeList<uint>(Allocator.Persistent);
-            vertices = new NativeList<Vector3>(Allocator.Persistent);
-            colors = new NativeList<Color>(Allocator.Persistent);
-            normals = new NativeList<Vector3>(Allocator.Persistent);
-
-            dataGeneration = new ChunkGenerator();
-
-            dataGeneration.strengths = strengths;
-            dataGeneration.threshold = 0.5f;
-            dataGeneration.chunkDetailMultiplier = 1;
-            dataGeneration.size = oneDim;
-            dataGeneration.random = new Unity.Mathematics.Random(235);
-
-            cubeMarch = new CubeMarch();
-
-            cubeMarch.segemntCountPerDimension = terrainData.segemntCountPerDimension;
-            cubeMarch.size = terrainData.segemntCountPerDimension;
-            cubeMarch.strengths = strengths;
-            cubeMarch.halfPoints = halfPoints;
-            cubeMarch.triangleCounts = triangleCounts;
-            cubeMarch.threshold = 0.5f;
-            cubeMarch.cube = marchingCubeInstructions.GetMarchingCube();
-            cubeMarch.instructions = marchingCubeInstructions.GetInstructions();
-            cubeMarch.edgeNotations = marchingCubeInstructions.GetNotations();
-            cubeMarch.vertaces = foundVertaces;
-
-            populate = new Populate();
-
-            float newChunkScale = terrainData.segemntCountPerDimension / -2f;
-            populate.startRef = new Vector3(newChunkScale, newChunkScale, newChunkScale) / terrainData.segemntCountPerDimension;
-            populate.chunkDetailMultiplier = 1;
-            populate.triangles = triangles;
-            populate.vertices = vertices;
-            populate.colors = colors;
-            populate.normals = normals;
-            populate.triangleCounts = triangleCounts;
-            populate.foundVertaces = foundVertaces;
-            populate.segemntCountPerDimension = terrainData.segemntCountPerDimension;
-
-            firstSetUpDone = true;
-        }
-    }
-    
-    public void SetRunData(Chunk chunk)
-    {
-        if (!firstSetUpDone)
-        {
-            SetUpInstances();
-        }
-
-        float stepSize = (terrainData.smallestChunkWidth * (chunk.chunkR * 2)) / (float)terrainData.segemntCountPerDimension;
-        Vector3 startPoint = chunk.position * terrainData.smallestChunkWidth - Vector3.one * chunk.chunkR * terrainData.smallestChunkWidth;
-
-        dataGeneration.startPoint = startPoint;
-        dataGeneration.stepSize = stepSize;
-        dataGeneration.seed = terrainData.seed;
-    }
-
-    public void DisposeInstances()
-    {
-        meshBakeHandle.Complete();
-        meshMakingHandle.Complete();
-
-        strengths.Dispose();
-        foundVertaces.Dispose();
-        halfPoints.Dispose();
-        triangleCounts.Dispose();
-
-        triangles.Dispose();
-        vertices.Dispose();
-        colors.Dispose();
-        normals.Dispose();
-    }
-}
-
-public class Chunk
-{
-    //public struct ChunkPart
-    //{
-    //    public Vector3 position;
-    //    public Vector3 index;
-    //    public float[] strengths;
-    //}
-    
-    public enum State { New, WaitingNative, GotNative, Making, Done, Free };
-
-    public enum Command { None, NotNeeded };
-
-    public ChunkNativeData chunkNativeData;
-
-    public Vector3 position;
-    public Vector3 subchunkIndex;
-    public int chunkR;
-    public State state = State.New;
-    public Command command = Command.None;
-    public GameObject gameObject;
-    public Renderer renderer;
-    public MeshFilter meshFilter;
-    public Mesh mesh;
-    public bool firstSetUpDone = false;
-    public int meshInstanceId;
-    public bool finished = false;
-
-    public List<float> strengths;
-    //public ChunkPart[,,] chunkParts;
-    public ChunkDataFetcher chunkDataFetcher;
-    public ChunkDataInterpreter chunkDataInterpreter;
-
-    //public Queue<Chunk> chunkWaiteForNative;
-    //public Queue<ChunkPart> smallChunkQueue;
-
-    //public float[,,][] smallChunkStrengths;
-    public Action<Chunk> nextStep;
-
-    bool CheckForStop()
-    {
-        if (command == Command.NotNeeded)
-        {
-            chunkNativeData.inUse = false;
-            chunkNativeData = null;
-            state = State.Free;
-            command = Command.None;
-
-            return true;
-        }
-
-        return false;
-    }
-
-    public bool InitMT(
-        GameObject pGameObject, 
-        TerrainData terrainData, 
-        MarchingCubeInstructions marchingCubeInstructions,
-        ChunkDataFetcher _chunkDataFetcher,
-        ChunkDataInterpreter _chunkDataInterpreter
-    )
-    {
-        if (!firstSetUpDone)
-        {
-            gameObject = new GameObject();
-            gameObject.layer = LayerMask.NameToLayer("Terrain");
-            gameObject.transform.SetParent(pGameObject.transform);
-            gameObject.AddComponent<MeshRenderer>();
-            gameObject.AddComponent<MeshCollider>();
-            meshFilter = gameObject.AddComponent<MeshFilter>();
-            renderer = gameObject.GetComponent<Renderer>();
-            renderer.material = Resources.Load<Material>("Materials/TerrainMaterial");
-            meshFilter.mesh.indexFormat = IndexFormat.UInt32;
-            mesh = meshFilter.mesh;
-            strengths = new List<float>();
-            //chunkWaiteForNative = new Queue<Chunk>();
-            //smallChunkQueue = new Queue<ChunkPart>();
-            chunkDataFetcher = _chunkDataFetcher;
-            chunkDataInterpreter = _chunkDataInterpreter;
-        }
-
-        return chunkNativeData != null;
-    }
-
-    public void CompleteJobHandle()
-    {
-        chunkNativeData.meshMakingHandle.Complete();
-    }
-
-    public void InitNMT(TerrainData terrainData, MarchingCubeInstructions marchingCubeInstructions)
-    {
-        state = State.Making;
-
-        chunkNativeData.SetRunData(this);
-        int chunkEdgeCount = (chunkR + chunkDataFetcher.extraW) * 2;
-        //chunkParts = new ChunkPart[chunkEdgeCount, chunkEdgeCount, chunkEdgeCount];
-
-        //foreach (var item in chunkDataFetcher.GetSubchunks(this))
-        //{
-        //    smallChunkQueue.Enqueue(item);
-        //}
-    }
-
-    //public void CollectSmallChunks(Chunk chunk)
-    //{
-    //    if (smallChunkQueue.Count > 0)
-    //    {
-    //        var chunkPart = smallChunkQueue.Dequeue();
-
-    //        subchunkIndex = chunkPart.index;
-
-    //        chunkDataFetcher.DoSubchunk(this, chunkPart.position, ShoveStrengthData);
-    //    }
-    //    else
-    //    {
-    //        ThreadDataRequest.RequestData(() =>
-    //        {
-    //            return chunk;
-    //        }, (object _chunk) =>
-    //        {
-    //            Chunk chunk = (Chunk)_chunk;
-    //            chunkDataFetcher.PopulateStrengths(this);
-    //            nextStep(chunk);
-    //        });
-    //    }
-    //}
-
-    //public void ShoveStrengthData(Chunk chunk)
-    //{
-    //    chunkParts[(int)subchunkIndex.x, (int)subchunkIndex.y, (int)subchunkIndex.z].strengths = chunkNativeData.strengths.ToArray();
-    //    //smallChunkStrengths[(int)subchunkIndex.x, (int)subchunkIndex.y, (int)subchunkIndex.z] = strengths.ToArray();
-
-    //    CollectSmallChunks(chunk);
-    //}
-
-    // MT
-    public void InterpretStrengths(Chunk chunk)
-    {
-        chunk.chunkDataInterpreter.ScheduleChunkInterpretation(chunk);
-        chunk.nextStep = CreateCollider;
-        WaitForChunkJobs(chunk);
-    }
-
-    public void WaitForChunkJobs(Chunk chunk, bool pause = false)
-    {
-        ThreadDataRequest.RequestData(() =>
-        {
-            if (pause)
-            {
-                Thread.Sleep(1);
-            }
-
-            return chunk;
-        }, (object _chunk) =>
-        {
-            Chunk chunk = (Chunk)_chunk;
-
-            if (!chunk.chunkNativeData.meshBakeHandle.IsCompleted)
-            {
-                WaitForChunkJobs(chunk, true);
-            }
-            else
-            {
-                chunk.nextStep(chunk);
-            }
-        });
-    }
-
-    public void CreateCollider(Chunk chunk)
-    {
-        chunk.CompleteJobHandle();
-        chunkDataInterpreter.SetChunkData(chunk);
-
-        ThreadDataRequest.RequestData(() =>
-        {
-            Physics.BakeMesh(chunk.meshInstanceId, false);
-            return chunk;
-        }, (object _chunk) =>
-        {
-            Chunk chunk = (Chunk)_chunk;
-
-            chunk.strengths = chunk.chunkNativeData.strengths.ToList();
-            chunk.gameObject.GetComponent<MeshCollider>().sharedMesh = chunk.mesh;
-            chunk.renderer.enabled = true;
-            chunk.chunkNativeData.meshBakeHandle.Complete();
-            chunk.chunkNativeData.meshMakingHandle.Complete();
-            chunk.chunkNativeData.inUse = false;
-            chunk.finished = true;
-            chunk.state = Chunk.State.Done;
-        });
-    }
-}

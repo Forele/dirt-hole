@@ -36,6 +36,8 @@ public class MarchingCubeInstructions
         }
     }
 
+
+
     public MarchingCubeInstructions()
     {
         GenerateMarchingCube();
@@ -160,7 +162,12 @@ public class MarchingCubeInstructions
         }
     }
 
-
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="cubeVertaces">Default cube whole number cords</param>
+    /// <param name="nodeAttributes">3D array of strengths</param>
+    /// <returns></returns>
     List<int> GetTriangleVertexOrders(Vector3[] cubeVertaces, NodeData[,,] nodeAttributes)
     {
         var triangleVertexOrders = new List<int>();
@@ -194,6 +201,7 @@ public class MarchingCubeInstructions
         }
 
         List<List<int>> edgeOrder = GetEdgeOrder(inBetween, cubeVertaces, nodeAttributes);
+        edgeOrder = OrderVertecesForLeastArea(edgeOrder);
 
         foreach (var loop in edgeOrder)
         {
@@ -220,6 +228,23 @@ public class MarchingCubeInstructions
         return triangleVertexOrders;
     }
 
+    private List<List<int>> OrderVertecesForLeastArea(List<List<int>> input)
+    {
+        List<List<int>> output = new List<List<int>>();
+
+        foreach (var a in output)
+        {
+            foreach (var b in a)
+            {
+                Debug.Log(b.ToString());
+            }
+        }
+
+        output = input;
+
+        return output;
+    }
+
     bool IsStrong(Vector3 point, NodeData[,,] nodeAttributs)
     {
         return nodeAttributs[(int)point.x, (int)point.y, (int)point.z].strength > threshold;
@@ -230,7 +255,7 @@ public class MarchingCubeInstructions
         return (input.pOne + input.pTwo) / 2;
     }
 
-
+    
     List<List<int>> GetEdgeOrder(List<InBetween> inBetween, Vector3[] cubeVertaces, NodeData[,,] nodeAttributes)
     {
         List<int> takenEdges = new List<int>();
@@ -265,6 +290,7 @@ public class MarchingCubeInstructions
 
                 for (int i = 0; i < inBetween.Count; i++)
                 {
+                    // Checks if two points are connected with edge
                     if (!takenEdges.Contains(i) &&
                         (
                             CommonCordCount(inBetween[i].pOne, inBetween[currentEdge].pOne) +

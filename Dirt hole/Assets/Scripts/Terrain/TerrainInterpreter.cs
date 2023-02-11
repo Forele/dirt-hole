@@ -314,9 +314,9 @@ public struct PopulateChunk : IJobParallelFor
     [ReadOnly] public float threshold;
     [ReadOnly] public int chunkDetailMultiplier;
 
-    public void Execute(int index)
+    public void Execute(int chunkVertexId)
     {
-        int indexCoppy = index;
+        int indexCoppy = chunkVertexId;
 
         int z = indexCoppy / (width * height) * chunkDetailMultiplier + (int)startPoint.z;
         indexCoppy = indexCoppy % (width * height);
@@ -324,7 +324,7 @@ public struct PopulateChunk : IJobParallelFor
         indexCoppy = indexCoppy % width;
         int x = indexCoppy * chunkDetailMultiplier + (int)startPoint.x;
 
-        strengths[index] = GetStrengthValue(x, y, z);
+        strengths[chunkVertexId] = GetStrengthValue(x, y, z);
     }
 
     float GetStrengthValue(int x, int y, int z)

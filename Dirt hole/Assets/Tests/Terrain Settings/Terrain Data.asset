@@ -12,9 +12,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fbf3c87d8f4cf044897fd3c0b55e7d6b, type: 3}
   m_Name: Terrain Data
   m_EditorClassIdentifier: 
-  smallestChunkWidth: 20
-  segemntCountPerDimension: 20
-  seed: 16
+  smallestChunkWidth: 40
+  segemntCountPerDimension: 1
+  seed: 172
   newChunkR: 8
   nativeDataSetCount: 19
   threshold: 0.5

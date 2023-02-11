@@ -2,15 +2,21 @@ using System.Collections.Generic;
 using UnityEngine;
 using System;
 using System.Threading;
+using System.Collections.Concurrent;
 
 public class ThreadDataRequest : MonoBehaviour
 {
     static ThreadDataRequest instance;
-    Queue<ThreadInfo> dataQueue = new Queue<ThreadInfo>();
+    ConcurrentQueue<ThreadInfo> dataQueue = new ConcurrentQueue<ThreadInfo>();
 
     private void Awake()
     {
         instance = FindObjectOfType<ThreadDataRequest>();
+    }
+
+    public static int GetQueueLength()
+    {
+        return instance.dataQueue.Count;
     }
 
     /// <summary>
@@ -48,9 +54,14 @@ public class ThreadDataRequest : MonoBehaviour
         {
             for (int i = 0; i < dataQueue.Count; i++)
             {
-                ThreadInfo threadInfo = dataQueue.Dequeue();
-                threadInfo.callback(threadInfo.parameter);
-                break;
+                ThreadInfo threadInfo = new ThreadInfo();
+                dataQueue.TryDequeue(out threadInfo);
+
+                if (threadInfo.parameter != null && threadInfo.callback != null)
+                {
+                    threadInfo.callback(threadInfo.parameter);
+                    //break;
+                }
             }
         }
     }

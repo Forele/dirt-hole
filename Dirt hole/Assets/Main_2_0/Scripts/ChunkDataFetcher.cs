@@ -35,136 +35,6 @@ public class ChunkDataFetcher
         return (vec.x.ToString() + "_" + vec.y.ToString() + "_" + vec.z.ToString());
     }
 
-    public void DeletePoint(Vector3 point, Vector3 position, Chunk chunk)
-    {
-        //point += point.normalized * 0.3f;
-
-        Vector3 newRef = point - (position - Vector3.one * chunk.chunkR * terrainData.smallestChunkWidth);
-
-
-        Vector3 triangleIndex = newRef / (chunk.chunkR * 2f * (terrainData.smallestChunkWidth / (float)terrainData.segemntCountPerDimension));
-        var w = terrainData.segemntCountPerDimension + 1;
-
-        Vector3 unrounded = triangleIndex;
-
-        triangleIndex.x = Mathf.RoundToInt(triangleIndex.x);
-        triangleIndex.y = Mathf.RoundToInt(triangleIndex.y);
-        triangleIndex.z = Mathf.RoundToInt(triangleIndex.z);
-
-        Debug.Log(
-            StringVector(point) + " # " + 
-            StringVector(position) + " # " +
-            StringVector(newRef) + " ## " +
-            StringVector(unrounded) + " # " +
-            StringVector(triangleIndex)
-        );
-
-        List<StrengthNode> strengthNodeList = new List<StrengthNode>();
-
-        for (int x = -4; x <= 4; x++)
-        {
-            for (int y = -4; y <= 4; y++)
-            {
-                for (int z = -4; z <= 4; z++)
-                {
-                    var strengthNode = new StrengthNode();
-
-                    strengthNode.pos = new Vector3(triangleIndex.x + x, triangleIndex.y + y, triangleIndex.z + z);
-
-                    if (
-                        strengthNode.pos.x < 0 || strengthNode.pos.y < 0 || strengthNode.pos.z < 0 ||
-                        strengthNode.pos.x >= w || strengthNode.pos.y >= w || strengthNode.pos.z >= w
-                    )
-                    {
-                        continue;
-                    }
-
-
-                    strengthNode.strength = chunk.strengths[
-                        (int)(strengthNode.pos.x + strengthNode.pos.y * w + strengthNode.pos.z * w * w)
-                    ];
-
-                    strengthNode.dist = Vector3.Distance(strengthNode.pos, unrounded);
-
-
-                    strengthNodeList.Add(strengthNode);
-                }
-            }
-        }
-
-        bool found = false;
-        Vector3 targetIndex = new Vector3(-1, -1, -1);
-        float minDist = 100f;
-
-        foreach (var item in strengthNodeList)
-        {
-            if (item.dist < minDist && item.strength > 0.5f)
-            {
-                found = true;
-                targetIndex = item.pos;
-                minDist = item.dist;
-            }
-        }
-
-        if (found)
-        {
-            chunk.strengths[(int)(targetIndex.x + targetIndex.y * w + targetIndex.z * w * w)] = 0;
-        }
-
-        int i = 0;
-
-        foreach (var item in chunk.strengths)
-        {
-            chunk.chunkNativeData.strengths[i] = item;
-            i++;
-        }
-    }
-
-    //public List<Chunk.ChunkPart> GetSubchunks(Chunk chunk)
-    //{
-    //    int listR = chunk.chunkR + 1;
-    //    //chunk.chunkParts = new Chunk.ChunkPart[listR * 2, listR * 2, listR * 2];
-    //    Vector3 walkingTarget = new Vector3();
-    //    List<Chunk.ChunkPart> subchunks = new List<Chunk.ChunkPart>();
-
-    //    for (int z = 0; z < listR * 2; z++)
-    //    {
-    //        for (int y = 0; y < listR * 2; y++)
-    //        {
-    //            for (int x = 0; x < listR * 2; x++)
-    //            {
-    //                walkingTarget.x = chunk.position.x + x - listR;
-    //                walkingTarget.y = chunk.position.y + y - listR;
-    //                walkingTarget.z = chunk.position.z + z - listR;
-
-    //                var chunkPart = new Chunk.ChunkPart();
-
-    //                chunkPart.position = walkingTarget * terrainData.smallestChunkWidth;
-    //                chunkPart.index = new Vector3(x, y, z);
-
-    //                subchunks.Add(chunkPart);
-    //            }
-    //        }
-    //    }
-
-    //    return subchunks;
-    //}
-
-
-    public void DoSubchunk(Chunk chunk, Vector3 startPoint, Action<Chunk> callBack)
-    {
-        chunk.chunkNativeData.dataGeneration.startPoint = startPoint;
-        chunk.chunkNativeData.dataGeneration.stepSize = smallStepSize;
-        chunk.chunkNativeData.dataGeneration.seed = terrainData.seed;
-
-        chunk.chunkNativeData.meshMakingHandle = chunk.chunkNativeData.dataGeneration.Schedule(oneDim * oneDim * oneDim, oneDim * oneDim, chunk.chunkNativeData.meshMakingHandle);
-        //chunk.chunkNativeData.meshMakingHandle.Complete();
-
-        WaitForSubchunk(chunk, callBack, terrainData);
-
-        //callBack(chunk);
-    }
-
     void WaitForSubchunk(Chunk chunk, Action<Chunk> callBack, bool pause = false)
     {
         ThreadDataRequest.RequestData(() =>
@@ -191,134 +61,14 @@ public class ChunkDataFetcher
         });
     }
 
-    public void CalculateChunkStrengths(Chunk chunk)
+    public void ScheduleChunkData(ChunkNativeData chunkNativeData)
     {
-        int listR = chunk.chunkR + 1;
-        //chunk.chunkParts = new Chunk.ChunkPart[listR * 2, listR * 2, listR * 2];
-        //Vector3 walkingTarget = new Vector3();
-        //float halfWidth = terrainData.smallestChunkWidth / 2f;
-
-        ////Debug.Log(StringVector(chunk.position));
-
-        //for (int z = 0; z < listR * 2; z++)
-        //{
-        //    for (int y = 0; y < listR * 2; y++)
-        //    {
-        //        for (int x = 0; x < listR * 2; x++)
-        //        {
-        //            var cp = new Chunk.ChunkPart();
-
-        //            walkingTarget.x = chunk.position.x + x - listR;
-        //            walkingTarget.y = chunk.position.y + y - listR;
-        //            walkingTarget.z = chunk.position.z + z - listR;
-
-        //            Debug.Log(StringVector(walkingTarget));
-
-        //            Vector3 startPoint;
-
-        //            float stepSize = (terrainData.smallestChunkWidth) / (float)terrainData.segemntCountPerDimension;
-        //            startPoint = walkingTarget * terrainData.smallestChunkWidth - Vector3.one * 0.5f * terrainData.smallestChunkWidth;
-
-        //            startPoint = walkingTarget * terrainData.smallestChunkWidth;
-
-        //            cp.position = startPoint;
-
-        //            chunk.chunkNativeData.dataGeneration.startPoint = startPoint;
-        //            chunk.chunkNativeData.dataGeneration.stepSize = stepSize;
-        //            chunk.chunkNativeData.dataGeneration.seed = terrainData.seed;
-
-        //            chunk.chunkNativeData.meshMakingHandle = chunk.chunkNativeData.dataGeneration.Schedule(oneDim * oneDim * oneDim, oneDim * oneDim, chunk.chunkNativeData.meshMakingHandle);
-
-        //            chunk.chunkNativeData.meshMakingHandle.Complete();
-
-        //            cp.strengths = chunk.chunkNativeData.strengths.ToArray();
-
-        //            chunk.chunkParts[x, y, z] = cp;
-        //        }
-        //    }
-        //}
-
-        Unity.Mathematics.Random r = new Unity.Mathematics.Random();
-        r.InitState();
-
-        for (int z = 1; z < listR * 2 - 1; z++)
-        {
-            for (int y = 1; y < listR * 2 - 1; y++)
-            {
-                for (int x = 1; x < listR * 2 - 1; x++)
-                {
-                    var makerStrengths = new float[3]; // chunk.smallChunkStrengths[x, y, z];
-
-                    int zoom = 2 * chunk.chunkR;
-
-                    for (int zz = 0; zz < oneDim; zz += zoom)
-                    {
-                        for (int yy = 0; yy < oneDim; yy += zoom)
-                        {
-                            for (int xx = 0; xx < oneDim; xx += zoom)
-                            {
-                                var strength = makerStrengths[xx + yy * oneDim + zz * oneDim * oneDim];
-
-                                var xxx = ((x - 1) * oneDim) / zoom + xx / zoom;
-                                var yyy = ((y - 1) * oneDim) / zoom + yy / zoom;
-                                var zzz = ((z - 1) * oneDim) / zoom + zz / zoom;
-
-                                var ind = xxx + yyy * oneDim + zzz * oneDim * oneDim;
-
-                                chunk.chunkNativeData.strengths[ind] = strength;
-
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    //public void PopulateStrengths(Chunk chunk)
-    //{
-    //    int listR = chunk.chunkR + 1;
-
-    //    for (int z = 1; z < listR * 2 - 1; z++)
-    //    {
-    //        for (int y = 1; y < listR * 2 - 1; y++)
-    //        {
-    //            for (int x = 1; x < listR * 2 - 1; x++)
-    //            {
-    //                var makerStrengths = chunk.chunkParts[x, y, z].strengths;
-
-    //                int zoom = 2 * chunk.chunkR;
-
-    //                for (int zz = 0; zz < oneDim; zz += zoom)
-    //                {
-    //                    for (int yy = 0; yy < oneDim; yy += zoom)
-    //                    {
-    //                        for (int xx = 0; xx < oneDim; xx += zoom)
-    //                        {
-    //                            var strength = makerStrengths[xx + yy * oneDim + zz * oneDim * oneDim];
-
-    //                            var xxx = ((x - 1) * oneDim) / zoom + xx / zoom;
-    //                            var yyy = ((y - 1) * oneDim) / zoom + yy / zoom;
-    //                            var zzz = ((z - 1) * oneDim) / zoom + zz / zoom;
-
-    //                            var ind = xxx + yyy * oneDim + zzz * oneDim * oneDim;
-
-    //                            chunk.chunkNativeData.strengths[ind] = strength;
-    //                        }
-    //                    }
-    //                }
-    //            }
-    //        }
-    //    }
-    //}
-    
-    public void ScheduleChunkData(Chunk chunk)
-    {
-        chunk.chunkNativeData.meshMakingHandle = chunk.chunkNativeData.dataGeneration.Schedule(oneDim * oneDim * oneDim, oneDim * oneDim, chunk.chunkNativeData.meshMakingHandle);
+        //Debug.Log(oneDim.ToString());
+        chunkNativeData.meshMakingHandle = chunkNativeData.dataGeneration.Schedule(oneDim * oneDim * oneDim, oneDim * oneDim, chunkNativeData.meshMakingHandle);
     }
 }
 
-[BurstCompile]
+//[BurstCompile]
 public struct ChunkGenerator : IJobParallelFor
 {
     [NativeDisableParallelForRestriction] public NativeArray<float> strengths;
@@ -329,11 +79,14 @@ public struct ChunkGenerator : IJobParallelFor
     [ReadOnly] public float stepSize;
     [ReadOnly] public float threshold;
     [ReadOnly] public int chunkDetailMultiplier;
+    [ReadOnly] public int setSize;
+    [ReadOnly] public float strengthTest;
+    [ReadOnly] public float testNumber;
     public Unity.Mathematics.Random random;
 
-    public void Execute(int index)
+    public void Execute(int chunkVertexId)
     {
-        int indexCoppy = index;
+        int indexCoppy = chunkVertexId;
 
         int z = indexCoppy / (size * size);
         indexCoppy = indexCoppy % (size * size);
@@ -341,18 +94,58 @@ public struct ChunkGenerator : IJobParallelFor
         indexCoppy = indexCoppy % size;
         int x = indexCoppy;
 
-        strengths[index] = GetStrengthValue(x, y, z);
+        //if (x == 0 && y == 0 && z == 0)
+        //{
+        //    strengths[index] = 0.5961156f;
+        //    //strengths[index] = 0.661156f;
+        //} else
+        //{
+        //    strengths[index] = 0;
+        //    //strengths[index] = GetStrengthValue(x, y, z);
+        //}
+
+        //Debug.Log(GetStrengthValue(x, y, z).ToString());
+
+        strengths[chunkVertexId] = GetStrengthValue(x, y, z);
+
     }
 
     float GetStrengthValue(int x, int y, int z)
     {
+        // Cubes test
         //if (x == 0 || y == 0 || z == 0 || x == size - 1 || y == size - 1 || z == size - 1)
         //{
-        //    return 0f;
-        //} else
-        //{
-        //    return 1f;
+        //    return 0.6f;
         //}
+        //else
+        //{
+        //    return strengthTest;
+        //}
+
+        //====================
+        //float res = z / (float)size - y / (float)size * strengthTest;
+        //float change = 5f;
+
+        //res = (res - 0.5f) * testNumber;
+
+
+        //if (res < 0.0001)
+        //{
+        //    res = 0f;
+        //} else if (res > 0.9999)
+        //{
+        //    res = 1f;
+        //}
+
+        //return res;
+        //=======================
+
+
+        //if (y == x)
+        //{
+
+        //}
+
 
         // test for complex chunk
         // return random.NextFloat(0, 1);
@@ -368,12 +161,38 @@ public struct ChunkGenerator : IJobParallelFor
         float yAbsLoc = (startPoint.y + y * stepSize);
         float zAbsLoc = (startPoint.z + z * stepSize);
 
+
+        //float newThing = x * -9.8f * strengthTest + y * 2;
+
+        //if (newThing < 0.0001)
+        //{
+        //    newThing = 0f;
+        //} else if (newThing > 0.9999)
+        //{
+        //    newThing = 1f;
+        //} else
+        //{
+        //    Debug.Log(newThing.ToString());
+        //}
+
+        //return newThing;
+
+        //Debug.Log(stepSize);
+
+        //Debug.Log(
+        //    ((x * stepSize) / 100f).ToString() + " " + 
+        //    ((y * stepSize) / 100f).ToString() + " " + 
+        //    ((z * stepSize) / 100f).ToString());
+
         // Bubble world test
-        //return Perlin3D(
-        //    (seed + startPoint.x + x * stepSize) / 200f,
-        //    (seed + startPoint.y + y * stepSize) / 200f,
-        //    (seed + startPoint.z + z * stepSize) / 200f
+        //var bubble = Perlin3D(
+        //    (seed + startPoint.x + x * stepSize) / 100f,
+        //    (seed + startPoint.y + y * stepSize) / 100f,
+        //    (seed + startPoint.z + z * stepSize) / 100f
         //); // For testing
+
+        //return bubble * strengthTest;
+        //return Mathf.Clamp((bubble - 0.5f) * 2f, 0, 1) * strengthTest;
 
 
         //return UnityEngine.Random.Range(0, 1);
@@ -388,7 +207,7 @@ public struct ChunkGenerator : IJobParallelFor
         uint octaves = 6; // 4
 
 
-        float amplitude = 1; // Bigger means lower valleys and bigger mountains.
+        float amplitude = 100; // Bigger means lower valleys and bigger mountains.
         float frequency = 100; // Bigger means more rapid change.
 
         for (uint i = 0; i < octaves; i++)
@@ -405,7 +224,7 @@ public struct ChunkGenerator : IJobParallelFor
 
         foundY -= size / 2f; // While testing shift ground
 
-        float range = stepSize;
+        float range = 2f;// stepSize + strengthTest; // Something solid instead should be used instead of vague +2
         var min = foundY - range;
         var max = foundY + range;
 
@@ -419,7 +238,14 @@ public struct ChunkGenerator : IJobParallelFor
             return 0f;
         }
 
-        return (max - yAbsLoc) / (range * 2);
+
+        //float partSteps = 4f;
+        //return (Mathf.RoundToInt((max - yAbsLoc) / (range * 2) * partSteps)) / partSteps;
+
+        float calcVal = (max - yAbsLoc) / (range * 2);
+
+        return calcVal;
+        //return Mathf.Clamp((calcVal - 0.5f) * 2, 0, 1) * strengthTest;
     }
 
     public float Perlin3D(float x, float y, float z)
@@ -427,6 +253,8 @@ public struct ChunkGenerator : IJobParallelFor
         float xP = Mathf.PerlinNoise(y, z);
         float yP = Mathf.PerlinNoise(x, z);
         float zP = Mathf.PerlinNoise(y, x);
+
+        //Debug.Log(getSameProbabilityNoise(xP, yP, zP).ToString());
 
         return getSameProbabilityNoise(xP, yP, zP);
     }
